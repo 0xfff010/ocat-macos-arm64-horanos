@@ -69,8 +69,8 @@ jobs:
           find "$APP/Contents/Frameworks" -type f -print0 | while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q Mach-O; then lipo -archs "$f" | grep -w arm64; fi
           done
-          codesign --force --deep -s - "$APP"
-          codesign --verify --deep --strict "$APP"
+          codesign --force -s - "$APP"
+          codesign --verify --strict "$APP"
           mkdir -p ../dist
           ditto -c -k --keepParent "$APP" ../dist/OCAT_Mac_ARM64-native.app.zip
           hdiutil create -quiet -volname OCAuxiliaryTools-ARM64 -srcfolder "$APP" -ov -format UDZO ../dist/OCAT_Mac_ARM64-native.dmg

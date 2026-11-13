@@ -56,8 +56,15 @@ jobs:
           cd OCAT
           APP="bin/release/OCAuxiliaryTools.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          ditto Database "$APP/Contents/MacOS/Database"
-          if test -d ExtBin; then ditto ExtBin "$APP/Contents/MacOS/ExtBin"; fi
+          # macOS app codesign treats everything physically under Contents/MacOS as code.
+          # Keep original executable-relative lookup via symlink, but seal actual data
+          # inside Contents/Resources to avoid signing text/plists as executable code.
+          ditto Database "$APP/Contents/Resources/Database"
+          ln -s ../Resources/Database "$APP/Contents/MacOS/Database"
+          if test -d ExtBin; then
+            ditto ExtBin "$APP/Contents/Resources/ExtBin"
+            ln -s ../Resources/ExtBin "$APP/Contents/MacOS/ExtBin"
+          fi
           cp Icon.icns "$APP/Contents/Resources/Icon.icns"
           cp -f Info.plist "$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 20250001' "$APP/Contents/Info.plist"

@@ -69,15 +69,17 @@ jobs:
           cp -f Info.plist "$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 20250001' "$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 20250001' "$APP/Contents/Info.plist"
-          "$(brew --prefix qt@5)/bin/macdeployqt" "$APP" -always-overwrite -verbose=1
+          # Ask official Qt packager to sign its nested Qt frameworks and plugins.
+          "$(brew --prefix qt@5)/bin/macdeployqt" "$APP" -always-overwrite -verbose=1 -codesign=-
           test -f "$APP/Contents/MacOS/Database/BaseConfigs/SampleCustom.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = z.OC-Auxiliary-Tools
           lipo -archs "$APP/Contents/MacOS/OCAuxiliaryTools" | grep -w arm64
           find "$APP/Contents/Frameworks" -type f -print0 | while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q Mach-O; then lipo -archs "$f" | grep -w arm64; fi
           done
+          # Re-sign outer bundle after Qt finishes sealing nested code.
           codesign --force -s - "$APP"
-          codesign --verify --strict "$APP"
+          codesign --verify --deep --strict "$APP"
           mkdir -p ../dist
           ditto -c -k --keepParent "$APP" ../dist/OCAT_Mac_ARM64-native.app.zip
           hdiutil create -quiet -volname OCAuxiliaryTools-ARM64 -srcfolder "$APP" -ov -format UDZO ../dist/OCAT_Mac_ARM64-native.dmg

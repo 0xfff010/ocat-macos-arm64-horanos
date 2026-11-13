@@ -1,0 +1,87 @@
+name: Build original OCAT macOS ARM64
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-native:
+    runs-on: macos-15
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect native Apple Silicon runner
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test "$(uname -m)" = arm64
+          sw_vers
+          xcrun --sdk macosx --show-sdk-path
+          xcodebuild -version
+      - name: Install Qt 5 ARM64
+        shell: bash
+        run: |
+          set -euxo pipefail
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install qt@5
+          QTP="$(brew --prefix qt@5)"
+          test -x "$QTP/bin/qmake"
+          "$QTP/bin/qmake" -v
+          file "$QTP/lib/QtCore.framework/Versions/5/QtCore"
+          lipo -archs "$QTP/lib/QtCore.framework/Versions/5/QtCore" | grep arm64
+          echo "$QTP/bin" >> "$GITHUB_PATH"
+      - name: Checkout exact original project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --filter=blob:none https://github.com/ic005k/OCAuxiliaryTools.git OCAT
+          cd OCAT
+          git checkout 48ff88775a03dbfbd890ad07156bb743ee527305
+          test "$(git rev-parse HEAD)" = 48ff88775a03dbfbd890ad07156bb743ee527305
+          test -f OCAuxiliaryTools.pro
+          test -f Icon.icns
+          test -f Database/BaseConfigs/SampleCustom.plist
+      - name: Build original Qt widgets GUI in ARM64
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd OCAT
+          "$(brew --prefix qt@5)/bin/qmake" OCAuxiliaryTools.pro CONFIG+=release "QMAKE_APPLE_DEVICE_ARCHS=arm64"
+          make -j3
+          APP="bin/release/OCAuxiliaryTools.app"
+          test -f "$APP/Contents/MacOS/OCAuxiliaryTools"
+          lipo -archs "$APP/Contents/MacOS/OCAuxiliaryTools" | grep -w arm64
+      - name: Deploy official app resources and native frameworks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd OCAT
+          APP="bin/release/OCAuxiliaryTools.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          ditto Database "$APP/Contents/MacOS/Database"
+          if test -d ExtBin; then ditto ExtBin "$APP/Contents/MacOS/ExtBin"; fi
+          cp Icon.icns "$APP/Contents/Resources/Icon.icns"
+          cp -f Info.plist "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 20250001' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 20250001' "$APP/Contents/Info.plist"
+          "$(brew --prefix qt@5)/bin/macdeployqt" "$APP" -always-overwrite -verbose=1
+          test -f "$APP/Contents/MacOS/Database/BaseConfigs/SampleCustom.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = z.OC-Auxiliary-Tools
+          lipo -archs "$APP/Contents/MacOS/OCAuxiliaryTools" | grep -w arm64
+          find "$APP/Contents/Frameworks" -type f -print0 | while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q Mach-O; then lipo -archs "$f" | grep -w arm64; fi
+          done
+          codesign --force --deep -s - "$APP"
+          codesign --verify --deep --strict "$APP"
+          mkdir -p ../dist
+          ditto -c -k --keepParent "$APP" ../dist/OCAT_Mac_ARM64-native.app.zip
+          hdiutil create -quiet -volname OCAuxiliaryTools-ARM64 -srcfolder "$APP" -ov -format UDZO ../dist/OCAT_Mac_ARM64-native.dmg
+          shasum -a 256 ../dist/*
+          file "$APP/Contents/MacOS/OCAuxiliaryTools" | tee ../dist/ARCHITECTURE.txt
+          echo "Source pinned to upstream commit 48ff88775a03dbfbd890ad07156bb743ee527305" >> ../dist/ARCHITECTURE.txt
+          echo "NOTE: Some upstream bundled auxiliary tools are Intel-only; Mac guest runtime function parity not certified." >> ../dist/ARCHITECTURE.txt
+      - name: Upload finished Mac binary and proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: OCAT-Mac-ARM64-original
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
